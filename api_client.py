@@ -83,7 +83,7 @@ class ChartbeatClient:
         normalized = []
         for name, concurrents in referrers_map.items():
             normalized.append({
-                "referrer": name,
+                "referrer": name if name.strip() else "Direct",
                 "page_views": int(concurrents),
                 "uniques": int(concurrents),
                 "total_stories": 0,
