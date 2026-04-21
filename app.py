@@ -118,11 +118,14 @@ if has_data:
 
 # --- Tabs ---
 if has_data or has_ref:
-    tab1, tab2, tab3, tab4 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
         "📊 Concurrents by Section",
         "🔗 Concurrents by Source",
         "🔥 Trending URLs",
         "🔍 URL Breakdown",
+        "👥 New vs Returning",
+        "🗺️ Engagement Heatmap",
+        "⚡ Traffic Alerts",
     ])
 
     # ===== TAB 1: Concurrents by Section =====
@@ -248,3 +251,151 @@ if has_data or has_ref:
                                 st.download_button("Download URL Data CSV", to_csv_bytes(csv_df), "url_level_data.csv", "text/csv", key="dl_url")
                     except ChartbeatAPIError as e:
                         st.error(e.message)
+
+    # ===== TAB 5: New vs Returning =====
+    with tab5:
+        if has_data:
+            pages_df = st.session_state["pages_df"]
+            total_visitors = int(pages_df["page_views"].sum())
+            total_new = int(pages_df["new_visitors"].sum())
+            total_returning = total_visitors - total_new
+
+            # Overall pie chart
+            pie_data = pd.DataFrame({
+                "type": ["New Visitors", "Returning Visitors"],
+                "count": [total_new, total_returning],
+            })
+            pie = alt.Chart(pie_data).mark_arc(innerRadius=50).encode(
+                theta=alt.Theta("count:Q"),
+                color=alt.Color("type:N", scale=alt.Scale(range=["#4CAF50", "#2196F3"])),
+                tooltip=["type", "count"],
+            ).properties(height=300, title="Overall New vs Returning")
+            st.altair_chart(pie, use_container_width=True)
+
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Total Visitors", f"{total_visitors:,}")
+            c2.metric("New Visitors", f"{total_new:,}", f"{round(total_new/max(total_visitors,1)*100)}%")
+            c3.metric("Returning", f"{total_returning:,}", f"{round(total_returning/max(total_visitors,1)*100)}%")
+
+            # Per-section breakdown
+            st.subheader("New Visitor Rate by Section")
+            section_visitors = (
+                pages_df[pages_df["section"] != ""]
+                .groupby("section", as_index=False)
+                .agg(concurrents=("page_views", "sum"), new_visitors=("new_visitors", "sum"))
+            )
+            section_visitors["new_pct"] = (section_visitors["new_visitors"] / section_visitors["concurrents"].replace(0, 1) * 100).round(1)
+            section_visitors = section_visitors.sort_values("new_pct", ascending=False)
+
+            bar = alt.Chart(section_visitors).mark_bar().encode(
+                x=alt.X("section", sort="-y", title="Section"),
+                y=alt.Y("new_pct", title="New Visitor %"),
+                color=alt.condition(alt.datum.new_pct > 30, alt.value("#4CAF50"), alt.value("#90CAF9")),
+                tooltip=["section", "concurrents", "new_visitors", "new_pct"],
+            ).properties(height=400)
+            st.altair_chart(bar, use_container_width=True)
+            st.caption("Green bars = sections with >30% new visitors (strong SEO/discovery content)")
+            st.dataframe(section_visitors, use_container_width=True)
+
+    # ===== TAB 6: Engagement Heatmap =====
+    with tab6:
+        if has_data:
+            pages_df = st.session_state["pages_df"]
+            sections = pages_df[pages_df["section"] != ""]
+
+            # Build section × source matrix
+            sources = ["search", "social", "internal", "links"]
+            rows = []
+            for section, group in sections.groupby("section"):
+                total_conc = group["page_views"].sum()
+                if total_conc == 0:
+                    continue
+                avg_eng = group["avg_engaged_sec"].mean()
+                for src in sources:
+                    src_conc = group[src].sum()
+                    if src_conc > 0:
+                        # Weighted avg engaged time for pages with this source
+                        src_pages = group[group[src] > 0]
+                        src_avg_eng = src_pages["avg_engaged_sec"].mean() if not src_pages.empty else 0
+                        rows.append({
+                            "section": section,
+                            "source": src.capitalize(),
+                            "concurrents": int(src_conc),
+                            "avg_engaged_sec": round(src_avg_eng, 1),
+                        })
+
+            if rows:
+                heatmap_df = pd.DataFrame(rows)
+                heat = alt.Chart(heatmap_df).mark_rect().encode(
+                    x=alt.X("source:N", title="Traffic Source"),
+                    y=alt.Y("section:N", title="Section", sort="-x"),
+                    color=alt.Color("avg_engaged_sec:Q", scale=alt.Scale(scheme="yellowgreenblue"), title="Avg Engaged (sec)"),
+                    tooltip=["section", "source", "concurrents", "avg_engaged_sec"],
+                ).properties(height=max(len(heatmap_df["section"].unique()) * 25, 300), title="Engagement Heatmap: Section × Traffic Source")
+                st.altair_chart(heat, use_container_width=True)
+                st.caption("Darker = higher engagement. Hover for details.")
+
+                # Top engagement combos
+                st.subheader("Top Engagement Combinations")
+                top = heatmap_df.sort_values("avg_engaged_sec", ascending=False).head(10)
+                st.dataframe(top, use_container_width=True)
+            else:
+                st.info("Not enough data for heatmap")
+
+    # ===== TAB 7: Traffic Alerts =====
+    with tab7:
+        if has_data:
+            pages_df = st.session_state["pages_df"]
+            current_sections = (
+                pages_df[pages_df["section"] != ""]
+                .groupby("section", as_index=False)
+                .agg(concurrents=("page_views", "sum"))
+                .sort_values("concurrents", ascending=False)
+            )
+
+            # Store history for comparison
+            prev_key = "prev_sections"
+            if prev_key in st.session_state:
+                prev = st.session_state[prev_key]
+                merged = current_sections.merge(prev, on="section", how="outer", suffixes=("_now", "_prev")).fillna(0)
+                merged["change"] = merged["concurrents_now"] - merged["concurrents_prev"]
+                merged["change_pct"] = ((merged["change"] / merged["concurrents_prev"].replace(0, 1)) * 100).round(1)
+
+                # Spikes (>50% increase)
+                spikes = merged[merged["change_pct"] > 50].sort_values("change_pct", ascending=False)
+                # Drops (>30% decrease)
+                drops = merged[merged["change_pct"] < -30].sort_values("change_pct")
+
+                if not spikes.empty:
+                    st.subheader("🚀 Traffic Spikes")
+                    st.caption("Sections with >50% increase since last fetch")
+                    spike_display = spikes[["section", "concurrents_now", "concurrents_prev", "change", "change_pct"]].copy()
+                    spike_display.columns = ["Section", "Now", "Previous", "Change", "Change %"]
+                    st.dataframe(
+                        spike_display.style.applymap(lambda v: "color: green; font-weight: bold" if isinstance(v, (int, float)) and v > 0 else "", subset=["Change", "Change %"]),
+                        use_container_width=True,
+                    )
+
+                if not drops.empty:
+                    st.subheader("📉 Traffic Drops")
+                    st.caption("Sections with >30% decrease since last fetch")
+                    drop_display = drops[["section", "concurrents_now", "concurrents_prev", "change", "change_pct"]].copy()
+                    drop_display.columns = ["Section", "Now", "Previous", "Change", "Change %"]
+                    st.dataframe(
+                        drop_display.style.applymap(lambda v: "color: red; font-weight: bold" if isinstance(v, (int, float)) and v < 0 else "", subset=["Change", "Change %"]),
+                        use_container_width=True,
+                    )
+
+                if spikes.empty and drops.empty:
+                    st.success("No significant traffic changes detected")
+
+                # Full comparison table
+                st.subheader("Full Section Comparison")
+                full = merged[["section", "concurrents_now", "concurrents_prev", "change", "change_pct"]].copy()
+                full.columns = ["Section", "Now", "Previous", "Change", "Change %"]
+                st.dataframe(full.sort_values("Now", ascending=False), use_container_width=True)
+            else:
+                st.info("Fetch data twice to see traffic changes. The first fetch establishes a baseline.")
+
+            # Save current as previous for next comparison
+            st.session_state[prev_key] = current_sections.copy()
