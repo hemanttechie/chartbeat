@@ -1,13 +1,14 @@
 # Chartbeat Referrer Dashboard
 
-A Streamlit dashboard that connects to the Chartbeat Historical Analytics API to analyze referrer performance for your property (domain). View aggregated traffic by category, drill down into URL-level data, and export results as CSV.
+A Streamlit dashboard that connects to the Chartbeat Real-Time API to analyze live referrer performance for your property (domain). View referrer data categorized by traffic source, drill down into URL-level data, and export results as CSV.
 
 ## Features
 
 - **Referrer Categorization** — Automatically groups referrers into Search, Social, Discovery, AMP, AI, and Direct/Other
-- **Aggregated View** — Summary tables and bar charts comparing page views and uniques across categories
+- **Category Summary** — Aggregated concurrent visitor counts per category with bar charts
+- **Referrer Details** — Per-referrer breakdown sortable by concurrent visitors
 - **Category Filtering** — Filter data by one or more referrer categories
-- **URL-Level Drill-Down** — Select a referrer to see per-URL performance with section extraction
+- **URL-Level Drill-Down** — Select a referrer to see which pages are getting traffic from it
 - **CSV Export** — Download referrer summary and URL-level data as CSV files
 
 ## Setup
@@ -22,13 +23,13 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-Then enter your Chartbeat API key, property domain, and date range in the sidebar.
+Enter your Chartbeat API key (with "all" access) and property domain in the sidebar.
 
 ## Project Structure
 
 ```
 ├── app.py              # Streamlit entry point
-├── api_client.py       # Chartbeat API wrapper
+├── api_client.py       # Chartbeat Real-Time API wrapper
 ├── categorizer.py      # Referrer categorization engine
 ├── transforms.py       # Data aggregation and section extraction
 ├── export.py           # CSV export helpers
@@ -42,7 +43,7 @@ Then enter your Chartbeat API key, property domain, and date range in the sideba
 pytest tests/ -v
 ```
 
-The test suite includes unit tests, property-based tests (Hypothesis), and integration tests — 63 tests total.
+63 tests including unit tests, property-based tests (Hypothesis), and integration tests.
 
 ## Referrer Categories
 
@@ -54,3 +55,7 @@ The test suite includes unit tests, property-based tests (Hypothesis), and integ
 | AMP | *.cdn.ampproject.org |
 | AI | ChatGPT, Google Gemini |
 | Direct/Other | Everything else |
+
+## API Access
+
+This app uses the Chartbeat Real-Time API (`/live/referrers/v3/` and `/live/toppages/v3/`). You need an API key with "all" access. Create one at your Chartbeat account settings under Manage API Keys.

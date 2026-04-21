@@ -1,14 +1,11 @@
-"""Wrapper around the Chartbeat Historical Analytics (Advanced Queries) API.
+"""Wrapper around the Chartbeat Real-Time API.
 
-Uses the 3-step flow: submit → poll status → fetch results.
-API key is passed via the X-CB-AK header.
-Docs: https://docs.chartbeat.com/cbp/api/historical-api/
+Uses /live/referrers/v3/ and /live/toppages/v3/ endpoints.
+API key is passed as the 'apikey' query parameter.
+Docs: https://docs.chartbeat.com/cbp/api/real-time-apis/traffic-data
 """
 
 from __future__ import annotations
-
-import time
-from datetime import datetime
 
 import requests
 
@@ -23,19 +20,28 @@ class ChartbeatAPIError(Exception):
 
 
 class ChartbeatClient:
-    """HTTP client for the Chartbeat Historical Analytics API."""
+    """HTTP client for the Chartbeat Real-Time API."""
 
-    BASE_URL = "https://api.chartbeat.com/query/v2"
-    POLL_INTERVAL = 5  # seconds between status checks
-    MAX_POLLS = 60  # max status checks before timeout
+    BASE_URL = "https://api.chartbeat.com"
 
     def __init__(self, api_key: str, host: str):
         self.api_key = api_key
         self.host = host
-        self._headers = {"X-CB-AK": api_key}
 
-    def _handle_error(self, resp: requests.Response) -> None:
-        """Raise ChartbeatAPIError for non-200 responses."""
+    def _request(self, endpoint: str, extra_params: dict | None = None) -> dict | list:
+        """Make a GET request and handle errors."""
+        params = {"apikey": self.api_key, "host": self.host}
+        headers = {"X-CB-AK": self.api_key}
+        if extra_params:
+            params.update(extra_params)
+
+        try:
+            resp = requests.get(f"{self.BASE_URL}{endpoint}", params=params, headers=headers)
+        except requests.ConnectionError:
+            raise ChartbeatAPIError(
+                "Network connectivity failure — check your connection"
+            )
+
         if resp.status_code in (401, 403):
             raise ChartbeatAPIError(
                 "Invalid API key or unauthorized access",
@@ -51,172 +57,104 @@ class ChartbeatClient:
                 "Chartbeat API is unavailable — try again later",
                 status_code=resp.status_code,
             )
-        raise ChartbeatAPIError(
-            f"Unexpected API error (HTTP {resp.status_code})",
-            status_code=resp.status_code,
-        )
-
-    def _submit_query(self, params: dict) -> str:
-        """Submit a query and return the query_id."""
-        url = f"{self.BASE_URL}/submit/page/"
-        try:
-            resp = requests.get(url, params=params, headers=self._headers)
-        except requests.ConnectionError:
+        if resp.status_code != 200:
             raise ChartbeatAPIError(
-                "Network connectivity failure — check your connection"
+                f"Unexpected API error (HTTP {resp.status_code})",
+                status_code=resp.status_code,
             )
 
-        if resp.status_code != 200:
-            self._handle_error(resp)
+        return resp.json()
 
-        data = resp.json()
-        query_id = data.get("query_id")
-        if not query_id:
-            raise ChartbeatAPIError("No query_id returned from submit endpoint")
-        return query_id
+    def get_referrers(self) -> list[dict]:
+        """Fetch live referrer data with concurrent visitor counts.
 
-    def _poll_status(self, query_id: str) -> None:
-        """Poll until query status is 'completed'."""
-        url = f"{self.BASE_URL}/status/"
-        params = {"query_id": query_id, "host": self.host}
-
-        for _ in range(self.MAX_POLLS):
-            try:
-                resp = requests.get(url, params=params, headers=self._headers)
-            except requests.ConnectionError:
-                raise ChartbeatAPIError(
-                    "Network connectivity failure — check your connection"
-                )
-
-            if resp.status_code != 200:
-                self._handle_error(resp)
-
-            status = resp.json().get("status", "")
-            if status == "completed":
-                return
-            if status == "deleted":
-                raise ChartbeatAPIError("Query was deleted before completion")
-
-            time.sleep(self.POLL_INTERVAL)
-
-        raise ChartbeatAPIError("Query timed out waiting for completion")
-
-    def _fetch_results(self, query_id: str) -> list[dict]:
-        """Fetch completed query results as JSON."""
-        url = f"{self.BASE_URL}/fetch/"
-        params = {"query_id": query_id, "host": self.host, "format": "json"}
-
-        try:
-            resp = requests.get(url, params=params, headers=self._headers)
-        except requests.ConnectionError:
-            raise ChartbeatAPIError(
-                "Network connectivity failure — check your connection"
-            )
-
-        if resp.status_code != 200:
-            self._handle_error(resp)
-
-        data = resp.json()
-        if isinstance(data, list):
-            return data
-        # Some responses wrap data in a key
-        if isinstance(data, dict):
-            for key in ("data", "rows", "results"):
-                if key in data and isinstance(data[key], list):
-                    return data[key]
-            return [data]
-        return []
-
-    def _run_query(self, params: dict) -> list[dict]:
-        """Submit, poll, and fetch a query."""
-        query_id = self._submit_query(params)
-        self._poll_status(query_id)
-        return self._fetch_results(query_id)
-
-    def get_referrers(self, start: datetime, end: datetime) -> list[dict]:
-        """Fetch referrer-level metrics for the date range.
-
-        Queries the Historical API with canonical_referrer dimension and
-        standard engagement metrics.
+        Uses /live/referrers/v3/ endpoint.
 
         Returns:
-            List of dicts with keys including: canonical_referrer (mapped to
-            'referrer'), page_views, page_uniques, total_engaged_sec, etc.
-
-        Raises:
-            ChartbeatAPIError: On HTTP or auth errors.
+            List of dicts with keys: referrer, page_views (concurrents),
+            and placeholder metrics for compatibility.
         """
-        params = {
-            "host": self.host,
-            "start": start.strftime("%Y-%m-%d"),
-            "end": end.strftime("%Y-%m-%d"),
-            "metrics": "page_views,quality_page_views,page_uniques,total_engaged_sec",
-            "dimensions": "canonical_referrer",
-            "sort_column": "page_views",
-            "sort_order": "desc",
-            "limit": 500,
-            "tz": "America/New_York",
-        }
+        data = self._request("/live/referrers/v3/", {"limit": 100})
 
-        rows = self._run_query(params)
+        referrers_map = data.get("referrers", {})
+        if not referrers_map:
+            return []
 
-        # Normalize column names to match our internal model
         normalized = []
-        for row in rows:
-            entry = {}
-            entry["referrer"] = row.get("canonical_referrer", row.get("referrer", ""))
-            entry["page_views"] = int(row.get("page_views", 0))
-            entry["quality_page_views"] = int(row.get("quality_page_views", 0))
-            entry["uniques"] = int(row.get("page_uniques", row.get("uniques", 0)))
-            total_sec = float(row.get("total_engaged_sec", 0))
-            entry["total_engaged_min"] = round(total_sec / 60, 2)
-            # Estimate stories as 1 per referrer row in this aggregation
-            entry["total_stories"] = int(row.get("total_stories", 1))
-            entry["avg_engaged_min"] = (
-                round(entry["total_engaged_min"] / entry["total_stories"], 2)
-                if entry["total_stories"] > 0
-                else 0.0
-            )
+        for name, concurrents in referrers_map.items():
+            normalized.append({
+                "referrer": name,
+                "page_views": int(concurrents),
+                "uniques": int(concurrents),
+                "total_stories": 0,
+                "total_engaged_min": 0.0,
+                "avg_engaged_min": 0.0,
+                "quality_page_views": 0,
+            })
+
+        # Sort by concurrents descending
+        normalized.sort(key=lambda x: x["page_views"], reverse=True)
+        return normalized
+
+    def get_toppages(self, limit: int = 100) -> list[dict]:
+        """Fetch top pages with referrer breakdown.
+
+        Uses /live/toppages/v3/ endpoint.
+
+        Returns:
+            List of dicts with page path, visitors, and top referrers.
+        """
+        data = self._request("/live/toppages/v3/", {"limit": limit})
+        pages = data.get("pages", [])
+
+        normalized = []
+        for page in pages:
+            stats = page.get("stats", {})
+            path = page.get("path", "")
+            visitors = stats.get("people", 0)
+            toprefs = stats.get("toprefs", [])
+
+            entry = {
+                "url": path,
+                "page_views": int(visitors),
+                "uniques": int(visitors),
+                "engaged_minutes": round(stats.get("engaged_time", {}).get("avg", 0) / 60, 2),
+                "top_referrers": [
+                    {"referrer": r.get("domain", ""), "visitors": r.get("visitors", 0)}
+                    for r in toprefs
+                ],
+                "search": int(stats.get("search", 0)),
+                "social": int(stats.get("social", 0)),
+                "direct": int(stats.get("direct", 0)),
+                "internal": int(stats.get("internal", 0)),
+                "links": int(stats.get("links", 0)),
+            }
             normalized.append(entry)
 
         return normalized
 
-    def get_urls_for_referrer(
-        self, referrer: str, start: datetime, end: datetime
-    ) -> list[dict]:
-        """Fetch URL-level metrics for a specific referrer.
+    def get_urls_for_referrer(self, referrer: str) -> list[dict]:
+        """Get top pages filtered by a specific referrer.
+
+        Fetches top pages and filters to those where the referrer
+        appears in the top referrers list.
 
         Returns:
-            List of dicts with keys: url (from path), page_views, uniques,
-            engaged_minutes.
-
-        Raises:
-            ChartbeatAPIError: On HTTP or auth errors.
+            List of dicts with url, page_views, uniques, engaged_minutes.
         """
-        params = {
-            "host": self.host,
-            "start": start.strftime("%Y-%m-%d"),
-            "end": end.strftime("%Y-%m-%d"),
-            "metrics": "page_views,page_uniques,total_engaged_sec",
-            "dimensions": "path",
-            "canonical_referrer": referrer,
-            "sort_column": "page_views",
-            "sort_order": "desc",
-            "limit": 500,
-            "tz": "America/New_York",
-        }
+        pages = self.get_toppages(limit=500)
 
-        rows = self._run_query(params)
+        filtered = []
+        for page in pages:
+            for ref in page.get("top_referrers", []):
+                if ref["referrer"].lower() == referrer.lower() and ref["visitors"] > 0:
+                    filtered.append({
+                        "url": page["url"],
+                        "page_views": ref["visitors"],
+                        "uniques": ref["visitors"],
+                        "engaged_minutes": page.get("engaged_minutes", 0),
+                    })
+                    break
 
-        normalized = []
-        for row in rows:
-            entry = {}
-            path = row.get("path", row.get("url", ""))
-            entry["url"] = f"{self.host}{path}" if path and not path.startswith("http") else path
-            entry["page_views"] = int(row.get("page_views", 0))
-            entry["uniques"] = int(row.get("page_uniques", row.get("uniques", 0)))
-            total_sec = float(row.get("total_engaged_sec", 0))
-            entry["engaged_minutes"] = round(total_sec / 60, 2)
-            normalized.append(entry)
-
-        return normalized
+        filtered.sort(key=lambda x: x["page_views"], reverse=True)
+        return filtered

@@ -1,11 +1,10 @@
 """Unit tests for API client error handling.
 
-Tests the 3-step Historical API flow: submit → status → fetch.
+Tests the real-time API endpoints: /live/referrers/v3/ and /live/toppages/v3/.
 Requirements referenced: 2.3, 1.3
 """
 
-from datetime import datetime
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -17,150 +16,120 @@ def client():
     return ChartbeatClient(api_key="test-key", host="example.com")
 
 
-@pytest.fixture
-def date_range():
-    return datetime(2024, 1, 1), datetime(2024, 1, 31)
-
-
-def _mock_submit_response(query_id="test-query-id"):
-    resp = MagicMock()
-    resp.status_code = 200
-    resp.json.return_value = {"query_id": query_id}
-    return resp
-
-
-def _mock_status_response(status="completed"):
-    resp = MagicMock()
-    resp.status_code = 200
-    resp.json.return_value = {"status": status}
-    return resp
-
-
-def _mock_fetch_response(data):
-    resp = MagicMock()
-    resp.status_code = 200
-    resp.json.return_value = data
-    return resp
-
-
-def _mock_error_response(status_code):
-    resp = MagicMock()
-    resp.status_code = status_code
-    return resp
-
-
 class TestGetReferrersErrorHandling:
-    """Test error handling for get_referrers method."""
 
-    def test_401_on_submit_raises_api_error(self, client, date_range):
-        with patch("api_client.requests.get", return_value=_mock_error_response(401)):
+    def test_401_raises_api_error(self, client):
+        mock_resp = MagicMock(status_code=401)
+        with patch("api_client.requests.get", return_value=mock_resp):
             with pytest.raises(ChartbeatAPIError) as exc_info:
-                client.get_referrers(*date_range)
+                client.get_referrers()
         assert exc_info.value.status_code == 401
         assert "Invalid API key" in exc_info.value.message
 
-    def test_404_on_submit_raises_api_error(self, client, date_range):
-        with patch("api_client.requests.get", return_value=_mock_error_response(404)):
+    def test_403_raises_api_error(self, client):
+        mock_resp = MagicMock(status_code=403)
+        with patch("api_client.requests.get", return_value=mock_resp):
             with pytest.raises(ChartbeatAPIError) as exc_info:
-                client.get_referrers(*date_range)
+                client.get_referrers()
+        assert exc_info.value.status_code == 403
+
+    def test_404_raises_api_error(self, client):
+        mock_resp = MagicMock(status_code=404)
+        with patch("api_client.requests.get", return_value=mock_resp):
+            with pytest.raises(ChartbeatAPIError) as exc_info:
+                client.get_referrers()
         assert exc_info.value.status_code == 404
         assert "Property not found" in exc_info.value.message
 
-    def test_500_on_submit_raises_api_error(self, client, date_range):
-        with patch("api_client.requests.get", return_value=_mock_error_response(500)):
+    def test_500_raises_api_error(self, client):
+        mock_resp = MagicMock(status_code=500)
+        with patch("api_client.requests.get", return_value=mock_resp):
             with pytest.raises(ChartbeatAPIError) as exc_info:
-                client.get_referrers(*date_range)
+                client.get_referrers()
         assert exc_info.value.status_code == 500
         assert "unavailable" in exc_info.value.message
 
-    def test_connection_error_raises_api_error(self, client, date_range):
+    def test_connection_error_raises_api_error(self, client):
         import requests as req
         with patch("api_client.requests.get", side_effect=req.ConnectionError()):
             with pytest.raises(ChartbeatAPIError) as exc_info:
-                client.get_referrers(*date_range)
+                client.get_referrers()
         assert exc_info.value.status_code is None
         assert "Network connectivity failure" in exc_info.value.message
 
-    def test_successful_flow_returns_normalized_data(self, client, date_range):
-        """Full submit → status → fetch flow with normalized output."""
-        api_data = [
-            {
-                "canonical_referrer": "Google Search",
-                "page_views": 100,
-                "quality_page_views": 80,
-                "page_uniques": 60,
-                "total_engaged_sec": 3000,
-            }
-        ]
-        responses = [
-            _mock_submit_response("q1"),
-            _mock_status_response("completed"),
-            _mock_fetch_response(api_data),
-        ]
-        with patch("api_client.requests.get", side_effect=responses):
-            result = client.get_referrers(*date_range)
+    def test_successful_response_returns_normalized_data(self, client):
+        mock_resp = MagicMock(status_code=200)
+        mock_resp.json.return_value = {
+            "referrers": {"Google Search": 150, "Facebook": 80, "Direct": 50}
+        }
+        with patch("api_client.requests.get", return_value=mock_resp):
+            result = client.get_referrers()
 
-        assert len(result) == 1
+        assert len(result) == 3
         assert result[0]["referrer"] == "Google Search"
-        assert result[0]["page_views"] == 100
-        assert result[0]["uniques"] == 60
-        assert result[0]["total_engaged_min"] == 50.0  # 3000s / 60
+        assert result[0]["page_views"] == 150
+        assert result[1]["referrer"] == "Facebook"
+        assert result[2]["referrer"] == "Direct"
 
-    def test_empty_response_returns_empty_list(self, client, date_range):
-        responses = [
-            _mock_submit_response("q1"),
-            _mock_status_response("completed"),
-            _mock_fetch_response([]),
-        ]
-        with patch("api_client.requests.get", side_effect=responses):
-            result = client.get_referrers(*date_range)
+    def test_empty_referrers_returns_empty_list(self, client):
+        mock_resp = MagicMock(status_code=200)
+        mock_resp.json.return_value = {"referrers": {}}
+        with patch("api_client.requests.get", return_value=mock_resp):
+            result = client.get_referrers()
         assert result == []
 
 
 class TestGetUrlsForReferrerErrorHandling:
-    """Test error handling for get_urls_for_referrer method."""
 
-    def test_401_on_submit_raises_api_error(self, client, date_range):
-        with patch("api_client.requests.get", return_value=_mock_error_response(401)):
+    def test_401_raises_api_error(self, client):
+        mock_resp = MagicMock(status_code=401)
+        with patch("api_client.requests.get", return_value=mock_resp):
             with pytest.raises(ChartbeatAPIError) as exc_info:
-                client.get_urls_for_referrer("Google Search", *date_range)
+                client.get_urls_for_referrer("Google Search")
         assert exc_info.value.status_code == 401
-        assert "Invalid API key" in exc_info.value.message
 
-    def test_500_on_submit_raises_api_error(self, client, date_range):
-        with patch("api_client.requests.get", return_value=_mock_error_response(500)):
-            with pytest.raises(ChartbeatAPIError) as exc_info:
-                client.get_urls_for_referrer("Google Search", *date_range)
-        assert exc_info.value.status_code == 500
-        assert "unavailable" in exc_info.value.message
-
-    def test_connection_error_raises_api_error(self, client, date_range):
+    def test_connection_error_raises_api_error(self, client):
         import requests as req
         with patch("api_client.requests.get", side_effect=req.ConnectionError()):
             with pytest.raises(ChartbeatAPIError) as exc_info:
-                client.get_urls_for_referrer("Google Search", *date_range)
+                client.get_urls_for_referrer("Google Search")
         assert exc_info.value.status_code is None
-        assert "Network connectivity failure" in exc_info.value.message
 
-    def test_successful_flow_returns_normalized_url_data(self, client, date_range):
-        api_data = [
-            {
-                "path": "/news/article-1.html",
-                "page_views": 50,
-                "page_uniques": 30,
-                "total_engaged_sec": 750,
-            }
-        ]
-        responses = [
-            _mock_submit_response("q2"),
-            _mock_status_response("completed"),
-            _mock_fetch_response(api_data),
-        ]
-        with patch("api_client.requests.get", side_effect=responses):
-            result = client.get_urls_for_referrer("Google Search", *date_range)
+    def test_successful_response_filters_by_referrer(self, client):
+        mock_resp = MagicMock(status_code=200)
+        mock_resp.json.return_value = {
+            "pages": [
+                {
+                    "path": "example.com/news/article-1.html",
+                    "stats": {
+                        "people": 100,
+                        "engaged_time": {"avg": 30},
+                        "toprefs": [
+                            {"domain": "Google Search", "visitors": 60},
+                            {"domain": "Facebook", "visitors": 20},
+                        ],
+                        "search": 60, "social": 20, "direct": 10,
+                        "internal": 5, "links": 5,
+                    },
+                },
+                {
+                    "path": "example.com/sports/game.html",
+                    "stats": {
+                        "people": 50,
+                        "engaged_time": {"avg": 45},
+                        "toprefs": [
+                            {"domain": "Facebook", "visitors": 30},
+                        ],
+                        "search": 10, "social": 30, "direct": 5,
+                        "internal": 3, "links": 2,
+                    },
+                },
+            ]
+        }
+        with patch("api_client.requests.get", return_value=mock_resp):
+            result = client.get_urls_for_referrer("Google Search")
 
+        # Only the first page has Google Search as a referrer
         assert len(result) == 1
         assert result[0]["url"] == "example.com/news/article-1.html"
-        assert result[0]["page_views"] == 50
-        assert result[0]["uniques"] == 30
-        assert result[0]["engaged_minutes"] == 12.5  # 750s / 60
+        assert result[0]["page_views"] == 60

@@ -1,8 +1,11 @@
-"""Streamlit entry point for the Chartbeat Referrer Dashboard."""
+"""Streamlit entry point for the Chartbeat Referrer Dashboard.
+
+Uses the Chartbeat Real-Time API to show live referrer data
+with categorization, drill-down, and CSV export.
+"""
 
 import streamlit as st
 import pandas as pd
-from datetime import date, datetime, timedelta
 
 from api_client import ChartbeatClient, ChartbeatAPIError
 from categorizer import categorize_dataframe
@@ -10,7 +13,7 @@ from transforms import aggregate_by_category, add_section_column
 from export import to_csv_bytes
 
 
-def validate_inputs(api_key: str, property_domain: str, start_date, end_date) -> tuple[bool, str]:
+def validate_inputs(api_key: str, property_domain: str) -> tuple[bool, str]:
     """Validate configuration inputs.
 
     Returns (True, '') if valid, (False, error_message) if invalid.
@@ -19,18 +22,13 @@ def validate_inputs(api_key: str, property_domain: str, start_date, end_date) ->
         return False, "API Key is required"
     if not property_domain or not property_domain.strip():
         return False, "Property (domain) is required"
-    if start_date >= end_date:
-        return False, "Start date must be before end date"
     return True, ""
 
 
-@st.cache_data
-def fetch_referrer_data(api_key: str, host: str, start: str, end: str):
-    """Fetch and process referrer data. Cached by Streamlit."""
+def fetch_referrer_data(api_key: str, host: str):
+    """Fetch and process live referrer data."""
     client = ChartbeatClient(api_key=api_key, host=host)
-    start_dt = datetime.fromisoformat(start)
-    end_dt = datetime.fromisoformat(end)
-    raw_data = client.get_referrers(start_dt, end_dt)
+    raw_data = client.get_referrers()
     if not raw_data:
         return pd.DataFrame(), pd.DataFrame()
     df = pd.DataFrame(raw_data)
@@ -43,29 +41,25 @@ def fetch_referrer_data(api_key: str, host: str, start: str, end: str):
 
 st.set_page_config(page_title="Chartbeat Referrer Dashboard", layout="wide")
 st.title("Chartbeat Referrer Dashboard")
+st.caption("Live referrer data from the Chartbeat Real-Time API")
 
 # Sidebar configuration panel
 with st.sidebar:
     st.header("Configuration")
     api_key = st.text_input("Chartbeat API Key", type="password", key="api_key")
-    property_domain = st.text_input("Property (domain)", key="property_domain")
-    start_date = st.date_input("Start Date", value=date.today() - timedelta(days=7), key="start_date")
-    end_date = st.date_input("End Date", value=date.today(), key="end_date")
-    submit = st.button("Fetch Data")
+    property_domain = st.text_input("Property (domain)", placeholder="e.g. tv9marathi.com", key="property_domain")
+    submit = st.button("Fetch Live Data")
 
 if submit:
-    is_valid, error_msg = validate_inputs(api_key, property_domain, start_date, end_date)
+    is_valid, error_msg = validate_inputs(api_key, property_domain)
     if not is_valid:
         st.error(error_msg)
     else:
-        with st.spinner("Fetching data from Chartbeat..."):
+        with st.spinner("Fetching live data from Chartbeat..."):
             try:
-                df, agg_df = fetch_referrer_data(
-                    api_key, property_domain,
-                    str(start_date), str(end_date)
-                )
+                df, agg_df = fetch_referrer_data(api_key, property_domain)
                 if df.empty:
-                    st.warning("No referrer data found for this date range")
+                    st.warning("No referrer data found")
                 else:
                     st.session_state["referrer_df"] = df
                     st.session_state["agg_df"] = agg_df
@@ -89,7 +83,7 @@ if "referrer_df" in st.session_state and "agg_df" in st.session_state:
     filtered_df = df[df["category"].isin(selected_categories)]
     filtered_agg = agg_df[agg_df["category"].isin(selected_categories)]
 
-    st.subheader("Category Summary")
+    st.subheader("Category Summary (Live Concurrents)")
     st.dataframe(filtered_agg, use_container_width=True)
 
     st.subheader("Referrer Details")
@@ -106,11 +100,8 @@ if "referrer_df" in st.session_state and "agg_df" in st.session_state:
     )
 
     # Bar charts
-    st.subheader("Page Views by Category")
+    st.subheader("Concurrents by Category")
     st.bar_chart(filtered_agg.set_index("category")["page_views"])
-
-    st.subheader("Uniques by Category")
-    st.bar_chart(filtered_agg.set_index("category")["uniques"])
 
     # URL-level drill-down
     st.subheader("URL-Level Drill-Down")
@@ -120,19 +111,17 @@ if "referrer_df" in st.session_state and "agg_df" in st.session_state:
     if selected_referrer:
         with st.spinner(f"Fetching URL data for {selected_referrer}..."):
             try:
-                client = ChartbeatClient(api_key=st.session_state["api_key"], host=st.session_state["property_domain"])
-                url_data = client.get_urls_for_referrer(
-                    selected_referrer,
-                    datetime.fromisoformat(str(st.session_state["start_date"])),
-                    datetime.fromisoformat(str(st.session_state["end_date"])),
+                client = ChartbeatClient(
+                    api_key=st.session_state["api_key"],
+                    host=st.session_state["property_domain"],
                 )
+                url_data = client.get_urls_for_referrer(selected_referrer)
                 if not url_data:
                     st.info("No URL-level data available for this referrer")
                 else:
                     url_df = pd.DataFrame(url_data)
                     url_df = add_section_column(url_df)
                     display_columns = ["url", "page_views", "uniques", "engaged_minutes", "section"]
-                    # Only show columns that exist in the data
                     display_columns = [c for c in display_columns if c in url_df.columns]
                     st.dataframe(url_df[display_columns], use_container_width=True)
                     st.download_button(
