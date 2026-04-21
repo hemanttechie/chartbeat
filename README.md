@@ -1,4 +1,4 @@
-# Chartbeat Referrer Dashboard
+# Chartbeat Realtime Dashboard
 
 A Streamlit dashboard that connects to the Chartbeat Real-Time API to analyze live referrer performance for your property (domain). View referrer data categorized by traffic source, drill down into URL-level data, and export results as CSV.
 
