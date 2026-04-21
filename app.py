@@ -238,7 +238,14 @@ if has_data or has_ref:
             else:
                 t = trending.copy()
                 t["keywords"] = t["title"].apply(extract_keywords)
-                t["url"] = t["url"].apply(make_clickable)
+                # Make title a clickable link, drop separate url column
+                t["title"] = t.apply(
+                    lambda row: f'<a href="{"https://" + row["url"] if not row["url"].startswith("http") else row["url"]}" target="_blank">{row["title"] or row["url"]}</a>',
+                    axis=1,
+                )
+                t["source"] = source_sel
+                t = t[["title", "section", "source", "from_source", "total_concurrents", "avg_engaged_sec", "keywords"]]
+                t = t.rename(columns={"from_source": "from_source_count"})
                 st.write(t.to_html(escape=False, index=False), unsafe_allow_html=True)
 
     # ===== TAB 4: URL Breakdown =====
