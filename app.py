@@ -166,6 +166,39 @@ if "pages_df" in st.session_state and not st.session_state["pages_df"].empty:
         mime="text/csv",
     )
 
+    # --- Trending Topics by Traffic Source ---
+    st.subheader("Trending Topics by Traffic Source")
+    source_tab = st.selectbox(
+        "Select Traffic Source",
+        options=["Search", "Social", "Discovery (Google Discover/News)", "Direct", "Links"],
+        key="trending_source",
+    )
+
+    source_col_map = {
+        "Search": "search",
+        "Social": "social",
+        "Discovery (Google Discover/News)": "search",  # discover comes via search in API
+        "Direct": "direct",
+        "Links": "links",
+    }
+    col = source_col_map[source_tab]
+
+    # Filter pages that have traffic from the selected source
+    trending = pages_df[pages_df[col] > 0][["title", "url", "section", col, "page_views", "avg_engaged_sec"]].copy()
+    trending = trending.rename(columns={col: "from_source", "page_views": "total_concurrents"})
+    trending = trending.sort_values("from_source", ascending=False).head(20)
+
+    if trending.empty:
+        st.info(f"No pages with {source_tab} traffic right now")
+    else:
+        # Make URLs clickable
+        trending_display = trending.copy()
+        trending_display["url"] = trending_display["url"].apply(make_clickable)
+        st.write(
+            trending_display.to_html(escape=False, index=False),
+            unsafe_allow_html=True,
+        )
+
 # --- Referrer Category Breakdown ---
 if "referrer_df" in st.session_state and not st.session_state["referrer_df"].empty:
     ref_df = st.session_state["referrer_df"]

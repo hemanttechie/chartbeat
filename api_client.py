@@ -115,8 +115,17 @@ class ChartbeatClient:
             toprefs = stats.get("toprefs", [])
 
             engaged_time = stats.get("engaged_time", {})
+            search = int(stats.get("search", 0))
+            social = int(stats.get("social", 0))
+            internal = int(stats.get("internal", 0))
+            links = int(stats.get("links", 0))
+            direct = int(visitors) - (search + social + internal + links)
+            if direct < 0:
+                direct = 0
+
             entry = {
                 "url": path,
+                "title": page.get("title", ""),
                 "page_views": int(visitors),
                 "avg_engaged_sec": round(engaged_time.get("avg", 0), 1),
                 "new_visitors": int(stats.get("new", 0)),
@@ -125,11 +134,11 @@ class ChartbeatClient:
                     {"referrer": r.get("domain", ""), "visitors": r.get("visitors", 0)}
                     for r in toprefs
                 ],
-                "search": int(stats.get("search", 0)),
-                "social": int(stats.get("social", 0)),
-                "direct": int(stats.get("direct", 0)),
-                "internal": int(stats.get("internal", 0)),
-                "links": int(stats.get("links", 0)),
+                "search": search,
+                "social": social,
+                "direct": direct,
+                "internal": internal,
+                "links": links,
             }
             normalized.append(entry)
 
