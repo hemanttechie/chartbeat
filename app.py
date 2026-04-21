@@ -88,7 +88,7 @@ def fetch_all_data(api_key: str, host: str):
 
 
 st.set_page_config(page_title="Chartbeat Realtime Dashboard", layout="wide")
-st.title("Chartbeat Referrer Dashboard")
+st.title("Chartbeat Realtime Dashboard")
 
 has_secret_key = False
 try:
@@ -401,7 +401,7 @@ if has_data or has_ref:
                     spike_display = spikes[["section", "concurrents_now", "concurrents_prev", "change", "change_pct"]].copy()
                     spike_display.columns = ["Section", "Now", "Previous", "Change", "Change %"]
                     st.dataframe(
-                        spike_display.style.applymap(lambda v: "color: green; font-weight: bold" if isinstance(v, (int, float)) and v > 0 else "", subset=["Change", "Change %"]),
+                        spike_display.style.map(lambda v: "color: green; font-weight: bold" if isinstance(v, (int, float)) and v > 0 else "", subset=["Change", "Change %"]),
                         use_container_width=True,
                     )
 
@@ -411,7 +411,7 @@ if has_data or has_ref:
                     drop_display = drops[["section", "concurrents_now", "concurrents_prev", "change", "change_pct"]].copy()
                     drop_display.columns = ["Section", "Now", "Previous", "Change", "Change %"]
                     st.dataframe(
-                        drop_display.style.applymap(lambda v: "color: red; font-weight: bold" if isinstance(v, (int, float)) and v < 0 else "", subset=["Change", "Change %"]),
+                        drop_display.style.map(lambda v: "color: red; font-weight: bold" if isinstance(v, (int, float)) and v < 0 else "", subset=["Change", "Change %"]),
                         use_container_width=True,
                     )
 
