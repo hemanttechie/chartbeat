@@ -7,7 +7,9 @@ with section breakdown, referrer categorization, drill-down, and CSV export.
 import streamlit as st
 import pandas as pd
 import altair as alt
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+
+IST = timezone(timedelta(hours=5, minutes=30))
 
 from api_client import ChartbeatClient, ChartbeatAPIError
 from categorizer import categorize_dataframe
@@ -27,6 +29,31 @@ DOMAINS = [
     "tv9tamilnews.com",
     "tv9up.com",
 ]
+
+
+STOP_WORDS = {
+    "the", "a", "an", "is", "are", "was", "were", "in", "on", "at", "to", "for",
+    "of", "and", "or", "but", "not", "with", "by", "from", "as", "it", "its",
+    "this", "that", "be", "has", "have", "had", "do", "does", "did", "will",
+    "can", "could", "would", "should", "may", "might", "shall", "no", "yes",
+    "he", "she", "they", "we", "you", "i", "me", "my", "his", "her", "our",
+    "your", "their", "what", "which", "who", "whom", "how", "when", "where",
+    "why", "all", "each", "every", "both", "few", "more", "most", "other",
+    "some", "such", "than", "too", "very", "just", "about", "above", "after",
+    "again", "also", "am", "an", "any", "because", "been", "before", "being",
+    "between", "during", "here", "there", "into", "over", "under", "up", "down",
+    "out", "off", "then", "once", "only", "own", "same", "so", "if", "while",
+    "|", "-", "–", "—", ":", "news", "latest", "live", "updates", "breaking",
+}
+
+
+def extract_keywords(title: str) -> str:
+    """Extract meaningful keywords from article title."""
+    if not title:
+        return ""
+    words = title.lower().replace(",", " ").replace(".", " ").split()
+    keywords = [w.strip() for w in words if len(w) > 2 and w.lower() not in STOP_WORDS]
+    return ", ".join(keywords[:5])
 
 
 def validate_inputs(api_key: str, property_domain: str) -> tuple[bool, str]:
@@ -96,7 +123,7 @@ if submit:
                     st.session_state["pages_df"] = pages_df
                     st.session_state["active_api_key"] = api_key
                     st.session_state["active_domain"] = property_domain
-                    st.session_state["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    st.session_state["last_updated"] = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S IST")
             except ChartbeatAPIError as e:
                 st.error(e.message)
 
@@ -160,7 +187,7 @@ if has_data or has_ref:
                 section_agg.style.apply(
                     lambda row: ["background-color: #d4edda" if row["avg_engaged_sec"] > 30 else "" for _ in row],
                     axis=1,
-                ),
+                ).format({"avg_engaged_sec": "{:.1f}"}),
                 use_container_width=True,
             )
             st.download_button("Download Section Summary CSV", to_csv_bytes(section_agg), "section_summary.csv", "text/csv", key="dl_section")
@@ -210,6 +237,7 @@ if has_data or has_ref:
                 st.info(f"No pages with {source_sel} traffic right now")
             else:
                 t = trending.copy()
+                t["keywords"] = t["title"].apply(extract_keywords)
                 t["url"] = t["url"].apply(make_clickable)
                 st.write(t.to_html(escape=False, index=False), unsafe_allow_html=True)
 
@@ -337,7 +365,7 @@ if has_data or has_ref:
 
                 # Top engagement combos
                 st.subheader("Top Engagement Combinations")
-                top = heatmap_df.sort_values("avg_engaged_sec", ascending=False).head(10)
+                top = heatmap_df[heatmap_df["concurrents"] >= 10].sort_values("avg_engaged_sec", ascending=False).head(10)
                 st.dataframe(top, use_container_width=True)
             else:
                 st.info("Not enough data for heatmap")
