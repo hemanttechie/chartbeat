@@ -114,11 +114,13 @@ class ChartbeatClient:
             visitors = stats.get("people", 0)
             toprefs = stats.get("toprefs", [])
 
+            engaged_time = stats.get("engaged_time", {})
             entry = {
                 "url": path,
                 "page_views": int(visitors),
-                "uniques": int(visitors),
-                "engaged_minutes": round(stats.get("engaged_time", {}).get("avg", 0) / 60, 2),
+                "avg_engaged_sec": round(engaged_time.get("avg", 0), 1),
+                "new_visitors": int(stats.get("new", 0)),
+                "returning": int(visitors) - int(stats.get("new", 0)),
                 "top_referrers": [
                     {"referrer": r.get("domain", ""), "visitors": r.get("visitors", 0)}
                     for r in toprefs
@@ -151,8 +153,7 @@ class ChartbeatClient:
                     filtered.append({
                         "url": page["url"],
                         "page_views": ref["visitors"],
-                        "uniques": ref["visitors"],
-                        "engaged_minutes": page.get("engaged_minutes", 0),
+                        "avg_engaged_sec": page.get("avg_engaged_sec", 0),
                     })
                     break
 
