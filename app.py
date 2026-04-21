@@ -87,7 +87,7 @@ def fetch_all_data(api_key: str, host: str):
     return ref_df, agg_df, pages_df
 
 
-st.set_page_config(page_title="Chartbeat Referrer Dashboard", layout="wide")
+st.set_page_config(page_title="Chartbeat Realtime Dashboard", layout="wide")
 st.title("Chartbeat Referrer Dashboard")
 
 has_secret_key = False
@@ -354,6 +354,7 @@ if has_data or has_ref:
 
             if rows:
                 heatmap_df = pd.DataFrame(rows)
+                heatmap_df = heatmap_df[heatmap_df["concurrents"] >= 10]
                 heat = alt.Chart(heatmap_df).mark_rect().encode(
                     x=alt.X("source:N", title="Traffic Source"),
                     y=alt.Y("section:N", title="Section", sort="-x"),
