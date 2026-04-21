@@ -120,6 +120,12 @@ if submit:
             except ChartbeatAPIError as e:
                 st.error(e.message)
 
+# --- Total Concurrents ---
+if "pages_df" in st.session_state and not st.session_state["pages_df"].empty:
+    pages_df = st.session_state["pages_df"]
+    total = int(pages_df["page_views"].sum())
+    st.metric("Total Concurrents", f"{total:,}")
+
 # --- Section Breakdown ---
 if "pages_df" in st.session_state and not st.session_state["pages_df"].empty:
     pages_df = st.session_state["pages_df"]
