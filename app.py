@@ -19,7 +19,12 @@ DOMAINS = [
     "tv9kannada.com",
     "tv9bangla.com",
     "tv9hindi.com",
+    "malayalamtv9.com",
     "news9live.com",
+    "money9live.com",
+    "tv9gujarati.com",
+    "tv9tamilnews.com",
+    "tv9up.com"
 ]
 
 
@@ -138,7 +143,14 @@ if "pages_df" in st.session_state and not st.session_state["pages_df"].empty:
     )
     section_agg["avg_engaged_sec"] = section_agg["avg_engaged_sec"].round(1)
 
-    st.bar_chart(section_agg.set_index("section")["concurrents"])
+    import altair as alt
+
+    section_chart = alt.Chart(section_agg).mark_bar().encode(
+        x=alt.X("section", sort="-y", title="Section"),
+        y=alt.Y("concurrents", title="Concurrents"),
+        tooltip=["section", "concurrents", "pages"],
+    ).properties(height=400)
+    st.altair_chart(section_chart, use_container_width=True)
     st.dataframe(section_agg, use_container_width=True)
 
     st.download_button(
@@ -168,7 +180,12 @@ if "referrer_df" in st.session_state and not st.session_state["referrer_df"].emp
     cat_display = filtered_agg[["category", "page_views"]].copy()
     cat_display = cat_display.rename(columns={"page_views": "concurrents"})
 
-    st.bar_chart(cat_display.set_index("category")["concurrents"])
+    cat_chart = alt.Chart(cat_display).mark_bar().encode(
+        x=alt.X("category", sort="-y", title="Category"),
+        y=alt.Y("concurrents", title="Concurrents"),
+        tooltip=["category", "concurrents"],
+    ).properties(height=400)
+    st.altair_chart(cat_chart, use_container_width=True)
 
     st.subheader("Referrer Details")
     detail = filtered_df[["referrer", "category", "page_views"]].copy()
