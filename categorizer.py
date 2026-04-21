@@ -86,6 +86,9 @@ def categorize_dataframe(
         A copy of the DataFrame with an added 'category' column.
     """
     result = df.copy()
+    if result.empty or "referrer" not in result.columns:
+        result["category"] = pd.Series(dtype="str")
+        return result
     result["category"] = result["referrer"].apply(
         lambda r: categorize_referrer(r, rules)
     )

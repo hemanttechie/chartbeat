@@ -34,6 +34,8 @@ def fetch_referrer_data(api_key: str, host: str, start: str, end: str):
     if not raw_data:
         return pd.DataFrame(), pd.DataFrame()
     df = pd.DataFrame(raw_data)
+    if "referrer" not in df.columns:
+        return pd.DataFrame(), pd.DataFrame()
     df = categorize_dataframe(df)
     agg_df = aggregate_by_category(df)
     return df, agg_df
