@@ -83,12 +83,19 @@ if "referrer_df" in st.session_state and "agg_df" in st.session_state:
     filtered_df = df[df["category"].isin(selected_categories)]
     filtered_agg = agg_df[agg_df["category"].isin(selected_categories)]
 
+    # Only show columns with meaningful data — rename for clarity
+    agg_display = filtered_agg[["category", "page_views", "uniques"]].copy()
+    agg_display = agg_display.rename(columns={"page_views": "concurrents", "uniques": "concurrents_unique"})
+
     st.subheader("Category Summary (Live Concurrents)")
-    st.dataframe(filtered_agg, use_container_width=True)
+    st.dataframe(agg_display, use_container_width=True)
+
+    detail_display = filtered_df[["referrer", "category", "page_views", "uniques"]].copy()
+    detail_display = detail_display.rename(columns={"page_views": "concurrents", "uniques": "concurrents_unique"})
 
     st.subheader("Referrer Details")
     st.dataframe(
-        filtered_df.sort_values("page_views", ascending=False),
+        detail_display.sort_values("concurrents", ascending=False),
         use_container_width=True,
     )
 
@@ -101,7 +108,7 @@ if "referrer_df" in st.session_state and "agg_df" in st.session_state:
 
     # Bar charts
     st.subheader("Concurrents by Category")
-    st.bar_chart(filtered_agg.set_index("category")["page_views"])
+    st.bar_chart(agg_display.set_index("category")["concurrents"])
 
     # URL-level drill-down
     st.subheader("URL-Level Drill-Down")
@@ -121,9 +128,13 @@ if "referrer_df" in st.session_state and "agg_df" in st.session_state:
                 else:
                     url_df = pd.DataFrame(url_data)
                     url_df = add_section_column(url_df)
-                    display_columns = ["url", "page_views", "uniques", "engaged_minutes", "section"]
-                    display_columns = [c for c in display_columns if c in url_df.columns]
-                    st.dataframe(url_df[display_columns], use_container_width=True)
+                    url_display = url_df[["url", "page_views", "uniques", "engaged_minutes", "section"]].copy()
+                    url_display = url_display.rename(columns={
+                        "page_views": "visitors",
+                        "uniques": "visitors_unique",
+                        "engaged_minutes": "avg_engaged_min",
+                    })
+                    st.dataframe(url_display, use_container_width=True)
                     st.download_button(
                         label="Download URL Data CSV",
                         data=to_csv_bytes(url_df),
